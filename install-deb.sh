@@ -1,13 +1,12 @@
 #!/bin/bash
 echo ""
-echo " THIS IS A NON-WORKING SCRIPT. SCRIPT UPDATE IN PROGRESS"
-echo ""
 echo "This script will install the necessary dependancies for TAK Server and complete the install using the .deb package"
-echo "!!!!!!!!!! This will take ~5min so please be patient !!!!!!!!!! "
+echo "!!!!!!!!!! This will take ~10min so please be patient !!!!!!!!!! "
 echo ""
 echo " NOTE: THIS SCRIPT AND FOLDER MUST BE IN THE /TMP DIRECTORY! "
 echo " NOTE: ONLY TAKSERVER VERSION 4.8-* IS COMPATIBLE WITH THIS SCRIPT! "
-echo " NOTE: UBUNTU VERSION 20.04 (REGULAR AND LXC) ARE ONLY SUPPORTED AT THIS TIME! "
+echo " NOTE: UBUNTU VERSION 20.04 (REGULAR AND LXC, ex Proxmox lxc) ARE ONLY SUPPORTED AT THIS TIME! "
+echo "           NOTE: TAKSERVER MUST BE UPLOADED TO GOOGLE DRIVE. "
 echo ""
 read -p "Press any key to select prompt options ..."
 echo ""
@@ -23,34 +22,8 @@ read STARTOPTION
 case $STARTOPTION in
 
   1)
-    echo -n "Lithuanian"
-    ;;
-
-  2)
-    echo "WARNING: Removing TakServer and all files..."
-    service takserver stop
-    sudo -i -u postgres psql
-    DROP DATABASE cot;
-    DROP USER martiuser;
-    \q
-    sudo apt-get remove takserver
-    sudo rm -rf /opt/tak
-    echo "Takserver and all config files removed!"
-    ;;
-
-  3)
-    echo -n "Exiting Takserver Setup Options"
-    exit 1
-    ;;
-
-  *)
-    echo "Invalid Option, try again"
-    ;;
-esac
-
-########################
-
-# Get the Ubuntu version number
+    echo "Starting TakServer installation process..."
+    # Get the Ubuntu version number
 version=$(lsb_release -rs)
 
 # Check if the version is 20.04
@@ -66,13 +39,14 @@ IP=$(ip addr show $NIC | grep -m 1 "inet " | awk '{print $2}' | cut -d "/" -f1)
 if [ $(dpkg-query -W -f='${Status}' curl 2>/dev/null | grep -c "ok installed") -eq 0 ];
 then
   echo "curl is not installed, installing now..."
+  sudo apt-get update
   sudo apt-get install curl gnupg2 wget vim net-tools -y
 else
   echo ""
 fi
 
 #update system
-apt-get update && apt-get upgrade -y
+sudo apt-get update && sudo apt-get upgrade -y
 
 #creating link to systemctl
 ln -s /bin/systemctl /usr/bin/systemctl
@@ -94,7 +68,7 @@ echo deb [arch=amd64,arm64,ppc64el signed-by=/usr/share/keyrings/postgresql.gpg]
 sudo apt-get update -y
 
 #Install Deps
-apt-get install python3-pip snapd postgresql-client-15 postgresql-15 postgresql-15-postgis-3 unzip zip wget git nano qrencode openssl net-tools dirmngr ca-certificates software-properties-common gnupg gnupg2 apt-transport-https curl openjdk-11-jdk -y
+sudo apt-get install python3-pip snapd postgresql-client-15 postgresql-15 postgresql-15-postgis-3 unzip zip wget git nano qrencode openssl net-tools dirmngr ca-certificates software-properties-common gnupg gnupg2 apt-transport-https curl openjdk-11-jdk -y
 
 if [ $? -ne 0 ]; then
 	echo "Error installing dependencies...."
@@ -946,7 +920,7 @@ do
 	filename="/opt/tak/CoreConfig.xml"
 
 	search="<dissemination smartRetry=\"false\"/>"
-	replace="${search}\n    <certificateSigning CA=\"TAKServer\">\n        <certificateConfig>\n            <nameEntries>\n                <nameEntry name=\"O\" value=\"TAK\"/>\n                <nameEntry name=\"OU\" value=\"TAK\"/>\n            </nameEntries>\n        </certificateConfig>\n        <TAKServerCAConfig keystore=\"JKS\" keystoreFile=\"/opt/tak/certs/files/intermediate-CA-signing.jks\" keystorePass=\"atakatak\" validityDays=\"30\" signatureAlg=\"SHA256WithRSA\"/>\n    </certificateSigning>"
+	replace="${search}\n    <certificateSigning CA=\"TAKServer\">\n        <certificateConfig>\n            <nameEntries>\n                <nameEntry name=\"O\" value=\"TAK\"/>\n                <nameEntry name=\"OU\" value=\"TAK\"/>\n            </nameEntries>\n        </certificateConfig>\n        <TAKServerCAConfig keystore=\"JKS\" keystoreFile=\"/opt/tak/certs/files/intermediate-CA-signing.jks\" keystorePass=\"atakatak\" validityDays=\"90\" signatureAlg=\"SHA256WithRSA\"/>\n    </certificateSigning>"
 	sed -i "s@$search@$replace@g" $filename
 
 	#Add new TLS Config
@@ -958,6 +932,18 @@ do
 	replace='<auth x509groups=\"true\" x509addAnonymous=\"false\" x509useGroupCache=\"true\" x509checkRevocation=\"true\">'
 	
 	sed -i "s@$search@$replace@g" $filename
+	
+	#Add MS AD Authentication Config
+	if [ "$HAS_MSADAUTH" = "1" ]; then
+		search='<auth x509groups="true" x509addAnonymous="false" x509useGroupCache="true" x509checkRevocation="true"><File location="UserAuthenticationFile.xml"/></auth>'
+		replace='<auth default="ldap" x509groups="true" x509addAnonymous="false" x509checkRevocation="true"><ldap url="$MSADURL" userstring="$MSUSERSTRING" updateinterval="60" groupprefix="$MSGROUPPREFIX" style="AD" serviceAccountDN="$MSSERVICEACCOUNT" serviceAccountCredential="$MSSERVICEACCOUNTPASS" groupBaseRDN="$MSGROUPRDN" x509groups="true" x509addAnonymous="false"/><File location="UserAuthenticationFile.xml"/></auth>'
+		sed -i "s|$search|$replace|" $filename
+		
+		
+		<input auth="ldap" _name="ldapssl" protocol="tls" port="8089" archive="true" archiveOnly="false" coreVersion="2" coreVersion2TlsVersions="TLSv1.2,TLSv1.3"/>
+	fi
+		#Add new conx type
+	sed -i '4 a\        <input auth="ldap" _name="ldapssl" protocol="tls" port="8089" archive="true" archiveOnly="false" coreVersion="2" coreVersion2TlsVersions="TLSv1.2,TLSv1.3"/>' /opt/tak/CoreConfig.xml
 
   if [[ $? -eq 0 ]]; then
     # Success
@@ -982,6 +968,20 @@ echo "******** RESTARTING TAKSERVER FOR CHANGES TO APPLY ***************"
 sudo systemctl restart takserver
 #start the service at boot
 sudo systemctl enable takserver
+
+#Allow TAK ports for it to work correctly.
+sudo ufw allow 8446	 #Webui access
+sudo ufw allow 8089      #Backend auth
+sudo ufw allow 8443      #Server packages and ATAK iTAK, federation
+sudo ufw allow 389       #AD/LDAP 
+sudo ufw allow 6969/udp  #TAK SA
+sudo ufw allow 17012/udp #GeoChat
+sufo ufw allow 8444      #Server packagess and ATAK iTAK, federation
+sudo ufw allow 9000/tcp	 #Federation Server v1
+sudo ufw allow 9001/tcp  #Federation Server v2
+sudo ufw allow 9100/tcp	 #FederationHUB WebUI
+sudo ufw allow 9102/tcp	 #FederationHUB Federation
+ufw reload
 
 clear
 
@@ -1062,9 +1062,26 @@ else
 	echo "ITAK - Requires FQDN SSL and has QR code auth"
 	echo ""
 	echo "replace 111.222.333.444 with your server IP"
-	echo ""
 	echo "scp tak@111.222.333.444:/opt/tak/certs/files/truststore-intermediate-CA.p12 ~/Downloads"
 	echo ""
+	echo "scp tak@$IP:/opt/tak/certs/files/truststore-intermediate-CA.p12 ~/Downloads"
+	echo ""
+	echo "**********************************************************************"
+	echo "=====================FIREWALL PORT INFORMATION========================"
+	echo "**********************************************************************"
+	echo ""
+	echo " You will need to port forward the following ports for Correct Operatons:"
+	echo "8446	  WebUI access"
+	echo "8089        Backend auth"
+	echo "8443        Server packages and ATAK iTAK, federation, WebUI Cert access"
+	echo "6969/udp    TAK SA"
+	echo "17012/udp   GeoChat"
+	echo "8444        Server packagess and ATAK iTAK, federation"
+	echo "9000/tcp	  Federation Server v1 (if used)"
+	echo "9001/tcp    Federation Server v2 (if used)"
+	echo "9100	  FederationHUB WebUI (if used)"
+	echo "9102/tcp	  FederationHUB Federation (if used)"
+	
 fi
 
 #ADD-ONS BELOW
@@ -1084,3 +1101,27 @@ echo "RTMP ADDRESS: $PUB_SERVER_IP:1935"
 echo "********************************************************************"
 echo " "
 fi
+read -p "Press any key to return to prompt options ..."
+    ;;
+
+  2)
+    echo "WARNING: Removing TakServer and all files..."
+    sudo service takserver stop
+    sudo -i -u postgres psql
+    DROP DATABASE cot;
+    DROP USER martiuser;
+    \q
+    sudo apt-get remove takserver
+    sudo rm -rf /opt/tak
+    echo "Takserver and all config files removed!"
+    ;;
+
+  3)
+    echo "Exiting TakServer Setup"
+    exit 1
+    ;;
+
+  *)
+    echo "Invalid Option, try again"
+    ;;
+esac
