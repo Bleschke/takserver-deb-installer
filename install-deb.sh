@@ -1,13 +1,54 @@
 #!/bin/bash
 echo ""
+echo " THIS IS A NON-WORKING SCRIPT. SCRIPT UPDATE IN PROGRESS"
 echo ""
 echo "This script will install the necessary dependancies for TAK Server and complete the install using the .deb package"
 echo "!!!!!!!!!! This will take ~5min so please be patient !!!!!!!!!! "
 echo ""
+echo " NOTE: THIS SCRIPT AND FOLDER MUST BE IN THE /TMP DIRECTORY! "
+echo " NOTE: ONLY TAKSERVER VERSION 4.8-* IS COMPATIBLE WITH THIS SCRIPT! "
+echo " NOTE: UBUNTU VERSION 20.04 (REGULAR AND LXC) ARE ONLY SUPPORTED AT THIS TIME! "
 echo ""
-read -p "Press any key to begin ..."
+read -p "Press any key to select prompt options ..."
+echo ""
+echo " '-------- TAKSERVER SETUP OPTIONS ---------"
+echo " '    1 - Install Takserver 4.8             '"
+echo " '    2 - Remove Takserver & files          '"
+echo " '    3 - Exit                              '"
+echo " '------------------------------------------'"
+echo ""
+echo -n "Enter Option: "
+read STARTOPTION
 
+case $STARTOPTION in
 
+  1)
+    echo -n "Lithuanian"
+    ;;
+
+  2)
+    echo "WARNING: Removing TakServer and all files..."
+    service takserver stop
+    sudo -i -u postgres psql
+    DROP DATABASE cot;
+    DROP USER martiuser;
+    \q
+    sudo apt-get remove takserver
+    sudo rm -rf /opt/tak
+    echo "Takserver and all config files removed!"
+    ;;
+
+  3)
+    echo -n "Exiting Takserver Setup Options"
+    exit 1
+    ;;
+
+  *)
+    echo "Invalid Option, try again"
+    ;;
+esac
+
+########################
 
 # Get the Ubuntu version number
 version=$(lsb_release -rs)
@@ -25,10 +66,23 @@ IP=$(ip addr show $NIC | grep -m 1 "inet " | awk '{print $2}' | cut -d "/" -f1)
 if [ $(dpkg-query -W -f='${Status}' curl 2>/dev/null | grep -c "ok installed") -eq 0 ];
 then
   echo "curl is not installed, installing now..."
-  sudo apt-get install curl -y
+  sudo apt-get install curl gnupg2 wget vim net-tools -y
 else
   echo ""
 fi
+
+#update system
+apt-get update && apt-get upgrade -y
+
+#creating link to systemctl
+ln -s /bin/systemctl /usr/bin/systemctl
+
+#create tak messaging folder... some have been receiving errors
+mkdir /opt/tak/messaging
+
+#enable postrges15 repo
+apt-cache search postgresql | grep postgresql
+sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 
 #import postgres repo
 curl -fSsL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | sudo tee /usr/share/keyrings/postgresql.gpg > /dev/null
@@ -40,7 +94,7 @@ echo deb [arch=amd64,arm64,ppc64el signed-by=/usr/share/keyrings/postgresql.gpg]
 sudo apt-get update -y
 
 #Install Deps
-sudo apt-get install postgresql-client-15 postgresql-15 postgresql-15-postgis-3 unzip zip wget git nano qrencode openssl net-tools dirmngr ca-certificates software-properties-common gnupg gnupg2 apt-transport-https curl openjdk-11-jdk -y
+apt-get install python3-pip snapd postgresql-client-15 postgresql-15 postgresql-15-postgis-3 unzip zip wget git nano qrencode openssl net-tools dirmngr ca-certificates software-properties-common gnupg gnupg2 apt-transport-https curl openjdk-11-jdk -y
 
 if [ $? -ne 0 ]; then
 	echo "Error installing dependencies...."
@@ -57,11 +111,11 @@ echo "Import TAK Server DEB using Google Drive"
 echo "*****************************************"
 echo ""
 echo "WHAT IS YOUR FILE ID ON GOOGLE DRIVE?"
-echo "(Right click > Get Link > Allow Sharing to anyone with link > Open share link > 'https://drive.google.com/file/d/<YOUR_FILE_ID_IS_HERE>/view?usp=sharing')"
+echo "(Right click > Get Link > Allow Sharing to anyone with link > Open share link > 'https://drive.google.com/file/d/<YOUR_FILE_ID_IS_HERE>/view?usp=sharing'): "
 read FILE_ID
 
 echo "WHAT IS YOUR FILE NAME?"
-echo "(ex: takserver_4.8-RELEASE45_all.deb) - Press Enter to use this as default"
+echo "(ex: takserver_4.8-RELEASE45_all.deb) - Press Enter to use this as default: "
 read FILE_NAME
 
 if [[ -z $FILE_NAME ]]; then
@@ -78,7 +132,7 @@ while [[ $SUCCESS == false ]]; do
     echo "DEB File found!"
     SUCCESS=true
   else
-    echo "Download failed. Would you like to retry? (y/n)"
+    echo "Download failed. Would you like to retry? (y/n): "
     read RETRY
 
     if [[ $RETRY == "n" ]]; then
@@ -87,7 +141,7 @@ while [[ $SUCCESS == false ]]; do
       exit
     else
       echo "Please enter the FILE_ID again:"
-      echo "(Right click > Get Link > Allow Sharing to anyone with link > Open share link > 'https://drive.google.com/file/d/<YOUR_FILE_ID_IS_HERE>/view?usp=sharing')"
+      echo "(Right click > Get Link > Allow Sharing to anyone with link > Open share link > 'https://drive.google.com/file/d/<YOUR_FILE_ID_IS_HERE>/view?usp=sharing'): "
       echo ""
       read FILE_ID
     fi
@@ -181,7 +235,7 @@ usermod -aG sudo $takuser
 clear
 
 #FQDN Setup
-read -p "Do you want to install and configure simple-rtsp-server? y or n " response
+read -p "Do you want to install and configure simple-rtsp-server? (y/n): " response
 if [[ $response =~ ^[Yy]$ ]]; then
 
 echo "Installing simple-rtsp-server - for use with TAK Server"
@@ -411,18 +465,14 @@ ExecStart=/usr/local/bin/rtsp-simple-server /usr/local/etc/rtsp-simple-server.ym
 WantedBy=multi-user.target
 EOF
 
-
 #Open RTSP/RTMP Ports in firewall
-#sudo ufw allow 554/tcp
-#sudo ufw allow 554/udp
-#sudo ufw allow 1935/tcp
-#sudo ufw allow 1935/udp
-#sudo ufw reload 
+sudo ufw allow 554
+sudo ufw allow 1935
+sudo ufw reload 
 
 # Enable the service on server boot
 sudo systemctl enable rtsp-simple-server
 sudo systemctl start rtsp-simple-server
-
 
 #Show conx info at end
 DEVICE_NAME=$(ip -o -4 route show to default | awk '{print $5}')
@@ -462,11 +512,8 @@ fi
 echo "************* Done installing Takserver **************"
 echo ""
 
-
 sudo systemctl daemon-reload
-
 sudo systemctl start takserver
-
 clear
 
 #wait for 30seconds so takserver can launch
@@ -476,37 +523,63 @@ sleep 30
 clear
 
 #FQDN Setup
-read -p "Do you want to setup a FQDN? y or n \n" response
+read -p "Do you want to setup a FQDN? (y/n): " response
 if [[ $response =~ ^[Yy]$ ]]; then
-#install certbot 
-sudo snap install --classic certbot
-sudo ln -s /snap/bin/certbot /usr/bin/certbot
-echo "What is your domain name? ex: atakhq.com or tak-public.atakhq.com "
+#install certbot
+#sudo snap install --classic certbot
+#sudo ln -s /snap/bin/certbot /usr/bin/certbot
+apt-get install certbot -y
+echo ""
+echo "NOTE: You need port 80 open and port forwarded in order to use Certbot"
+echo ""
+echo "What is your domain name? ex: atakhq.com or tak-public.atakhq.com: "
 read FQDN
 DOMAIN=$FQDN
 echo ""
-echo "What is your hostname? ex: atakhq-com or tak-public-atakhq-com "
-echo "** Suggest using same value you entered for domain name but replace . with -"
+echo "What is your hostname? ex: atakhq-com or tak-public-atakhq-com or tak: "
+echo "** Suggest using same value you entered for domain name but replace . with -: "
 read HOSTNAME
+
+#allowing port 80 for certbot auth
+sudo ufw allow 80
 
 #request inital cert
   echo "Requesting a new certificate..."
   # Request a new certificate
   echo "What is your email? - Needed for Letsencrypt Alerts"
   read EMAIL
-
-  if certbot certonly --standalone -d $DOMAIN -m $EMAIL --agree-tos --non-interactive; then
-    echo "Certificate obtained successfully!"
-    CERT_NAME=$(sudo certbot certificates | grep -oP "(?<=Certificate Name: ).*")
-  else
-    echo "Error obtaining certificate: $(sudo certbot certificates)"
-    exit 1
-  fi
+  
+  while [[ $CERTSUCCESS == false]]; do
+  	if certbot certonly --standalone -d $DOMAIN -m $EMAIL --agree-tos --non-interactive; then
+  	  echo "Certificate obtained successfully!"
+	  CERTSUCCESS=true
+    	  CERT_NAME=$(sudo certbot certificates | grep -oP "(?<=Certificate Name: ).*")
+  	else
+    		echo "Error obtaining certificate: $(sudo certbot certificates)"
+    		echo "Is port 80 open on the firewall? You may need to port forward."
+		echo "Would you like to retry? (y/n): "
+		read CERTRETRY
+	
+		if [[ $CERTRETRY == "n" ]]; then
+			echo "Quitting Installation.. Remove all files and try again."
+			exit 1
+		else 
+  			if certbot certonly --standalone -d $DOMAIN -m $EMAIL --agree-tos --non-interactive; then
+  	  			echo "Certificate obtained successfully!"
+	  			CERTSUCCESS=true
+    				CERT_NAME=$(sudo certbot certificates | grep -oP "(?<=Certificate Name: ).*")
+			else 
+			    echo "Error obtaining certificate: $(sudo certbot certificates)"
+  			fi
+		fi
+	fi
+done
+	
 
 sudo openssl pkcs12 -export -in /etc/letsencrypt/live/$FQDN/fullchain.pem -inkey /etc/letsencrypt/live/$FQDN/privkey.pem -name $HOSTNAME -out ~/$HOSTNAME.p12 -passout pass:atakatak
 sudo apt install openjdk-16-jre-headless -y
 echo ""
-read -p "If asked to save file becuase an existing copy exists, reply Y. Press any key to resume setup..."
+read -p "If asked to save file becuase an existing copy exists, reply Yes. Press any key to resume setup... "
 echo ""
 #read -p "If prompted for password, use 'atakatak' Press any key to resume setup..."
 #echo ""
@@ -525,17 +598,22 @@ sudo update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
 HAS_FQDNSSL=1
 else
   HAS_FQDNSSL=0
-  echo "skipping FQDN setup..."
+  echo "skipping FQDN setup... "
 fi
 
 clear
 
 #Need to build CoreConfig.xml and put it into /opt/tak/CoreConfig.xml so next script uses it to make certs
-echo "SSL Configuration: Hit enter (x3) to accept the defaults:"
+echo "SSL Configuration: Hit enter (x3) to accept the defaults: "
 
-read -p "State (for cert generation). Default [state] :" state
-read -p "City (for cert generation). Default [city]:" city
-read -p "Organizational Unit (for cert generation). Default [org_unit]:" orgunit
+read -p "State (for cert generation). Default [state]: " state
+read -p "City (for cert generation). Default [city]: " city
+read -p "Organizational Unit (for cert generation). Default [org_unit]: " orgunit
+
+# Update local env if the above file edits dont work - bunch of people reporting issues here
+export STATE=$state
+export CITY=$city
+export ORGANIZATIONAL_UNIT=$orgunit
 
 # define the input file path
 CERTMETAPATH="/opt/tak/certs/cert-metadata.sh"
@@ -584,6 +662,7 @@ else
         echo "Cert Setup Script exists but is not executable, are you running this as root?"
     fi
     read -n 1 -s -r -p "Press any key to exit...."
+    echo "Exiting Installation. Remove files and try again."
     exit 1
 fi
 
@@ -656,7 +735,7 @@ done
 clear
 
 #Do you want to create user certs now?
-read -p "Do you want to create additional connection packages for users? y or n " response
+read -p "Do you want to create additional connection packages for users? (y/n): " response
 if [[ $response =~ ^[Yy]$ ]]; then
 
 HASUSERS=1
@@ -668,7 +747,7 @@ TRUSTSTORE="truststore-intermediate-CA.p12"
 TAK_COT_PORT='8089'
 
 #Make the Client Keys
-echo "How many clients do you want to configure?"
+echo "How many clients do you want to configure? "
 read CLIENT_COUNT
 CLIENT_ARR=()
 for ((i=1; i<=$CLIENT_COUNT;i++))
@@ -743,7 +822,55 @@ echo "Done creating client connection packages..."
 
 fi
 
+echo " ************** SETUP: LDAP/AD AUTHENTICATION **************"
+echo ""
+read -p "Do you want to Setup and Configure Microsoft AD Authentication? (y/n): " response
+if [[ $response =~ ^[Yy]$ ]]; then
+	echo "Setting up and Configuring Microsoft AD Authenticaiton"
+	echo ""
+	echo "Enter URL..."
+	echo "For Microsoft AD Enter: ldap://<local-IP>/dc=<domain-name>,dc=<TLD> "
+	echo "example: ldap://192.168.1.2/dc=test,dc=net "
+	MSADURL
+	LDAPURL=$MSADURL
 
+	echo ""
+	echo "Enter User String..."
+	echo "For Microsoft AD Enter: {username}@<domain-name>.<TLD>"
+	echo "example: {username}@test.net "
+	MSUSERSTRING
+	LDAPUSERSTRING=$MSUSERSTRING
+
+	echo ""
+	echo "Enter Group Prefix..."
+	echo "Definition: Anything before the security group name"
+	echo "Example: IF security group name is 'tak_GroupA', Enter cn=tak_ "
+	MSGROUPPREFIX
+	LDAPGROUPPREFIX=$MSGROUPPREFIX
+
+	echo ""
+	echo "Enter MS AD Service Account..."
+	echo "For Microsoft AD Enter: <service-account>@<domain>.<TLD>"
+	echo "Example: adduseraccount@test.net "
+	MSSERVICEACCOUNT
+	LDAPSERVICEACCOUNT=$MSSERVICEACCOUNT
+
+	echo ""
+	echo "Enter MS AD Service Account Password... "
+	MSSERVICEACCOUNTPASS
+	LDAPSERVICEACCOUNTPASS=$MSSERVICEACCOUNTPASS
+
+	echo ""
+	echo "Enter MS AD Group Folder..."
+	echo "For Microsoft AD Enter: ou=<group-folder>"
+	echo "Example: ou=TAK "
+	MSGROUPRDN
+	LDAPGROUPRDN=$MSGROUPRDN
+
+	else
+	echo "skipping configuration of Microsoft AD Authentication."
+fi
+clear
 
 max_retries=5
 retry_interval=10 # seconds
