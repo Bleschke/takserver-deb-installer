@@ -936,7 +936,7 @@ do
 	#Add MS AD Authentication Config
 	if [ "$HAS_MSADAUTH" = "1" ]; then
 		search='<auth x509groups="true" x509addAnonymous="false" x509useGroupCache="true" x509checkRevocation="true"><File location="UserAuthenticationFile.xml"/></auth>'
-		replace='<auth default="ldap" x509groups="true" x509addAnonymous="false" x509checkRevocation="true"><ldap url="$MSADURL" userstring="$MSUSERSTRING" updateinterval="60" groupprefix="$MSGROUPPREFIX" style="AD" serviceAccountDN="$MSSERVICEACCOUNT" serviceAccountCredential="$MSSERVICEACCOUNTPASS" groupBaseRDN="$MSGROUPRDN" x509groups="true" x509addAnonymous="false"/><File location="UserAuthenticationFile.xml"/></auth>'
+		replace='<auth default="ldap" x509groups="true" x509addAnonymous="false" x509checkRevocation="true"><ldap url="$MSADURL" userstring="$MSUSERSTRING" updateinterval="60" groupprefix="$MSGROUPPREFIX" style="AD" ldapSecurityType="simple" serviceAccountDN="$MSSERVICEACCOUNT" serviceAccountCredential="$MSSERVICEACCOUNTPASS" groupObjectClass="group" groupBaseRDN="$MSGROUPRDN" x509groups="true" x509addAnonymous="false" matchGroupInChain="true" nestedGroupLookup="true"/><File location="UserAuthenticationFile.xml"/></auth>'
 		sed -i "s|$search|$replace|" $filename
 		
 		
